@@ -1,4 +1,4 @@
-(function () {
+(function (document) {
 
     'use strict';
 
@@ -15,7 +15,12 @@
 
     function lowercase(string) {
         return isString(string) ? string.toLowerCase() : string;
+    }
+
+    function uppercase(string) {
+        return isString(string) ? string.toUpperCase() : string;
     };
+
     function isFunction(value) {
         return typeof value == 'function';
     }
@@ -562,7 +567,7 @@
         }
     }
 
-/////////////////////////////////////////
+
 
     function parser(text, json, $filter, csp) {
         var ZERO = valueFn(0),
@@ -1169,7 +1174,7 @@
         return getterFnCache[path] = fn;
     }
 
-///////////////////////////////////
+
 
     /**
      * @ngdoc function
@@ -1211,31 +1216,84 @@
      *
      */
     function $ParseProvider() {
-        var cache = {};
-        this.$get = ['$filter', '$sniffer', function ($filter, $sniffer) {
-            return function (exp) {
+        var cache = {},
+            filters = {},
+            registerFilter = function (name, fn) {
+                filters[name] = fn();
+            },
+            $filter = extend(function (name) {
+                return filters[name];
+            }, {
+                register: registerFilter,
+                all: filters
+            });
+        this.$get = ['$filter', '$sniffer', function () {
+            var ngParser
+            return ngParser = extend(function (exp) {
                 switch (typeof exp) {
                     case 'string':
                         return cache.hasOwnProperty(exp)
                             ? cache[exp]
-                            : cache[exp] = parser(exp, false, $filter, $sniffer.csp);
+                            : cache[exp] = parser(exp, false, $filter, ngParser.csp);
                     case 'function':
                         return exp;
                     default:
                         return noop;
                 }
-            };
+            }, {
+                lex: lex,
+                filters: $filter,
+                cache: cache,
+                csp: false,
+
+                forEach: forEach,
+                valueFn: valueFn,
+                noop: noop,
+                lowercase: lowercase,
+
+                isFunction: isFunction,
+                isUndefined: isUndefined,
+                isString: isString,
+                isArray: isArray,
+                isArrayLike: isArrayLike,
+                isDefined: isDefined,
+                isWindow: isWindow,
+                isScope: isScope,
+                toJson: toJson,
+                toJsonReplacer: toJsonReplacer,
+                extend: extend,
+                setHashKey: setHashKey,
+                minErr: minErr,
+                toString: toString
+            });
         }];
+
+        var uppercaseFilter = valueFn(uppercase);
+        var lowercaseFilter = valueFn(lowercase);
+
+        // TODO implement these filters
+        /*register('currency', currencyFilter);
+         register('date', dateFilter);
+         register('filter', filterFilter);
+         register('json', jsonFilter);
+         register('limitTo', limitToFilter);
+         register('number', numberFilter);
+         register('orderBy', orderByFilter);*/
+        registerFilter('uppercase', uppercaseFilter);
+        registerFilter('lowercase', lowercaseFilter);
+
+
+
     }
 
     if (typeof module !== "undefined" && typeof module.exports !== "undefined") {
-        module.exports = new $ParseProvider().$get[2](noop, {});
+        module.exports = new $ParseProvider().$get[2]({});
     } else if (typeof define !== "undefined" && define.amd) {
         define("ngParser", function () {
-            return new $ParseProvider().$get[2](noop, {});
+            return new $ParseProvider().$get[2]({});
         });
     } else {
-        this.ngParser = new $ParseProvider().$get[2](noop, {});
+        this.ngParser = new $ParseProvider().$get[2]({});
     }
 
-}.call(this));
+}.call(this, typeof document === "undefined" ? {} : document));
