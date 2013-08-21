@@ -1,0 +1,29 @@
+{
+  "name": "ngParser.js",
+  "version": "0.0.0",
+  "description": "A standalone implementation of angular's expression parser",
+  "main": "dist/ngParser.js",
+  "scripts": {
+    "test": "grunt test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/rodyhaddad/ngParser.js.git"
+  },
+  "keywords": [
+    "angular",
+    "expressions",
+    "parser",
+    "parse"
+  ],
+  "author": "rodyhaddad",
+  "license": "MIT",
+  "devDependencies": {
+    "grunt": "~0.4.1",
+    "karma": "~0.10.1",
+    "karma-chrome-launcher": "~0.1.0",
+    "grunt-karma": "~0.6.1",
+    "grunt-contrib-watch": "~0.5.2",
+    "karma-jasmine": "~0.1.0"
+  }
+}
