@@ -789,14 +789,9 @@
                         return value;
                     }, {
                         write: function (self, locals) {
-                            var value = "";
-                            // TODO use .map and .join(";")
-                            for (var i = 0; i < statements.length; i++) {
-                                if (statements[i]) {
-                                    value += statements[i].write(self, locals);
-                                }
-                            }
-                            return value;
+                            return statements.map(function (statement) {
+                                return statement.write(self, locals);
+                            }).join(";");
                         }
                     });
                 }
