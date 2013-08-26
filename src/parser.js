@@ -239,10 +239,6 @@
         }
     }
 
-    function addWrite(obj, writeFn) {
-        obj.write = writeFn;
-    }
-
     var OPERATORS = {
         'null': valueFn(null),
         'true': valueFn(true),
@@ -320,6 +316,84 @@
     };
     var ESCAPE = {"n": "\n", "f": "\f", "r": "\r", "t": "\t", "v": "\v", "'": "'", '"': '"'};
 
+    forEach({
+        'null': "null",
+        'true': "true",
+        'false': "false",
+        undefined: "undefined",
+        '+': function (self, locals, a, b) {
+            a = a(self, locals);
+            b = b(self, locals);
+            if (isDefined(a)) {
+                if (isDefined(b)) {
+                    return a.write() + "+" + b.write();
+                }
+                return a.write();
+            }
+            return isDefined(b) ? b.write() : "undefined";
+        },
+        '-': function (self, locals, a, b) {
+            a = a(self, locals);
+            b = b(self, locals);
+            return (isDefined(a) ? a.write() : "0") + "-" + (isDefined(b) ? b.write() : "0");
+        },
+        '*': function (self, locals, a, b) {
+            return a.write() + "*" + b.write();
+        },
+        '/': function (self, locals, a, b) {
+            return a.write() + "/" + b.write();
+        },
+        '%': function (self, locals, a, b) {
+            return a.write() + "%" + b.write();
+        },
+        '^': function (self, locals, a, b) {
+            return a.write() + "^" + b.write();
+        },
+        '=': noop,
+        '===': function (self, locals, a, b) {
+            return a.write() + "===" + b.write();
+        },
+        '!==': function (self, locals, a, b) {
+            return a.write() + "!==" + b.write();
+        },
+        '==': function (self, locals, a, b) {
+            return a.write() + "==" + b.write();
+        },
+        '!=': function (self, locals, a, b) {
+            return a.write() + "!=" + b.write();
+        },
+        '<': function (self, locals, a, b) {
+            return a.write() + "<" + b.write();
+        },
+        '>': function (self, locals, a, b) {
+            return a.write() + ">" + b.write();
+        },
+        '<=': function (self, locals, a, b) {
+            return a.write() + "<=" + b.write();
+        },
+        '>=': function (self, locals, a, b) {
+            return a.write() + ">=" + b.write();
+        },
+        '&&': function (self, locals, a, b) {
+            return a.write() + "&&" + b.write();
+        },
+        '||': function (self, locals, a, b) {
+            return a.write() + "||" + b.write();
+        },
+        '&': function (self, locals, a, b) {
+            return a.write() + "&" + b.write();
+        },
+//    '|':function(self, locals, a,b){return a|b;},
+        '|': function (self, locals, a, b) {
+            return b.write(self, locals, a);
+        },
+        '!': function (self, locals, a) {
+            return "!" + a.write();
+        }
+    }, function (writeFn, operator) {
+        OPERATORS[operator].write = isFunction(writeFn) ? writeFn : valueFn(writeFn);
+    });
+
     function lex(text, csp) {
         var tokens = [],
             token,
@@ -345,7 +419,8 @@
                 tokens.push({
                     index: index,
                     text: ch,
-                    json: (was(':[,') && is('{[')) || is('}]:,')
+                    json: (was(':[,') && is('{[')) || is('}]:,'),
+                    write: valueFn(ch)
                 });
                 if (is('{[')) json.unshift(ch);
                 if (is('}]')) json.shift();
@@ -360,13 +435,13 @@
                     fn2 = OPERATORS[ch2],
                     fn3 = OPERATORS[ch3];
                 if (fn3) {
-                    tokens.push({index: index, text: ch3, fn: fn3});
+                    tokens.push({index: index, text: ch3, fn: fn3, write: fn3.write});
                     index += 3;
                 } else if (fn2) {
-                    tokens.push({index: index, text: ch2, fn: fn2});
+                    tokens.push({index: index, text: ch2, fn: fn2, write: fn2.write});
                     index += 2;
                 } else if (fn) {
-                    tokens.push({index: index, text: ch, fn: fn, json: was('[,:') && is('+-')});
+                    tokens.push({index: index, text: ch, fn: fn, json: was('[,:') && is('+-'), write: fn.write});
                     index += 1;
                 } else {
                     throwError("Unexpected next character ", index, index + 1);
@@ -446,7 +521,7 @@
             tokens.push({index: start, text: number, json: true,
                 fn: function () {
                     return number;
-                }});
+                }, write: valueFn(number)});
         }
 
         function readIdent() {
@@ -492,6 +567,7 @@
 
             if (OPERATORS.hasOwnProperty(ident)) {
                 token.fn = token.json = OPERATORS[ident];
+                token.write = token.fn.write;
             } else {
                 var getter = getterFn(ident, csp, text);
                 token.fn = extend(function (self, locals) {
@@ -501,6 +577,20 @@
                         return setter(self, ident, value, text);
                     }
                 });
+                token.write = function (scope, locals) {
+                    var splitIdent = ident.split("."), firstIdent = splitIdent.shift(), lastIdent = splitIdent.pop();
+                    var value = "(locals.hasOwnProperty('" + firstIdent + "')?locals." + firstIdent + ":scope." + firstIdent + ")";
+                    if (lastIdent) {
+                        value = "(" + value + " || {})";
+                    }
+                    while (splitIdent.length) {
+                        value = "(" + value + "." + splitIdent.shift() + " || {})";
+                    }
+                    if (lastIdent) {
+                        value += "." + lastIdent;
+                    }
+                    return value;
+                }
             }
 
             tokens.push(token);
@@ -509,12 +599,14 @@
                 tokens.push({
                     index: lastDot,
                     text: '.',
-                    json: false
+                    json: false,
+                    write: valueFn('.')
                 });
                 tokens.push({
                     index: lastDot + 1,
                     text: methodName,
-                    json: false
+                    json: false,
+                    write: valueFn(methodName)
                 });
             }
         }
@@ -555,7 +647,8 @@
                         json: true,
                         fn: function () {
                             return string;
-                        }
+                        },
+                        write: valueFn(rawString)
                     });
                     return;
                 } else {
@@ -566,7 +659,6 @@
             throwError("Unterminated quote", start);
         }
     }
-
 
 
     function parser(text, json, $filter, csp) {
@@ -646,11 +738,12 @@
             }
         }
 
-        function unaryFn(fn, right) {
+        function unaryFn(token, right) {
             return extend(function (self, locals) {
-                return fn(self, locals, right);
+                return token.fn(self, locals, right);
             }, {
-                constant: right.constant
+                constant: right.constant,
+                write: token.write
             });
         }
 
@@ -658,15 +751,21 @@
             return extend(function (self, locals) {
                 return left(self, locals) ? middle(self, locals) : right(self, locals);
             }, {
-                constant: left.constant && middle.constant && right.constant
+                constant: left.constant && middle.constant && right.constant,
+                write: function () {
+                    return left.write() + "?" + middle.write() + ":" + right.write();
+                }
             });
         }
 
-        function binaryFn(left, fn, right) {
+        function binaryFn(left, token, right) {
             return extend(function (self, locals) {
-                return fn(self, locals, left, right);
+                return token.fn(self, locals, left, right);
             }, {
-                constant: left.constant && right.constant
+                constant: left.constant && right.constant,
+                write: function (self, locals) {
+                    return token.write(self, locals, left, right);
+                }
             });
         }
 
@@ -680,7 +779,7 @@
                     // TODO(size): maybe we should not support multiple statements?
                     return statements.length == 1
                         ? statements[0]
-                        : function (self, locals) {
+                        : extend(function (self, locals) {
                         var value;
                         for (var i = 0; i < statements.length; i++) {
                             var statement = statements[i];
@@ -688,7 +787,18 @@
                                 value = statement(self, locals);
                         }
                         return value;
-                    };
+                    }, {
+                        write: function (self, locals) {
+                            var value = "";
+                            // TODO use .map and .join(";")
+                            for (var i = 0; i < statements.length; i++) {
+                                if (statements[i]) {
+                                    value += statements[i].write(self, locals);
+                                }
+                            }
+                            return value;
+                        }
+                    });
                 }
             }
         }
@@ -698,7 +808,7 @@
             var token;
             while (true) {
                 if ((token = expect('|'))) {
-                    left = binaryFn(left, token.fn, filter());
+                    left = binaryFn(left, token, filter());
                 } else {
                     return left;
                 }
@@ -707,7 +817,7 @@
 
         function filter() {
             var token = expect();
-            var fn = $filter(token.text);
+            var fn = $filter(token.text), filterName = token.text;
             var argsFn = [];
             while (true) {
                 if ((token = expect(':'))) {
@@ -720,9 +830,17 @@
                         }
                         return fn.apply(self, args);
                     };
-                    return function () {
+                    return extend(function () {
                         return fnInvoke;
-                    };
+                    }, {
+                        write: function (self, locals, input) {
+                            var value = "$filter('" + filterName + "')(";
+                            value += [input].concat(argsFn).map(function (fn) {
+                                return fn.write(self, locals)
+                            }).join(", ");
+                            return value + ")";
+                        }
+                    });
                 }
             }
         }
@@ -741,9 +859,13 @@
                         text.substring(0, token.index) + "] can not be assigned to", token);
                 }
                 right = ternary();
-                return function (scope, locals) {
+                return extend(function (scope, locals) {
                     return left.assign(scope, right(scope, locals), locals);
-                };
+                }, {
+                    write: function (scope, locals) {
+                        return left.write(scope, locals) + "=" + right.write(scope, locals);
+                    }
+                });
             } else {
                 return left;
             }
@@ -772,7 +894,7 @@
             var token;
             while (true) {
                 if ((token = expect('||'))) {
-                    left = binaryFn(left, token.fn, logicalAND());
+                    left = binaryFn(left, token, logicalAND());
                 } else {
                     return left;
                 }
@@ -783,7 +905,7 @@
             var left = equality();
             var token;
             if ((token = expect('&&'))) {
-                left = binaryFn(left, token.fn, logicalAND());
+                left = binaryFn(left, token, logicalAND());
             }
             return left;
         }
@@ -792,7 +914,7 @@
             var left = relational();
             var token;
             if ((token = expect('==', '!=', '===', '!=='))) {
-                left = binaryFn(left, token.fn, equality());
+                left = binaryFn(left, token, equality());
             }
             return left;
         }
@@ -801,7 +923,7 @@
             var left = additive();
             var token;
             if ((token = expect('<', '>', '<=', '>='))) {
-                left = binaryFn(left, token.fn, relational());
+                left = binaryFn(left, token, relational());
             }
             return left;
         }
@@ -810,7 +932,7 @@
             var left = multiplicative();
             var token;
             while ((token = expect('+', '-'))) {
-                left = binaryFn(left, token.fn, multiplicative());
+                left = binaryFn(left, token, multiplicative());
             }
             return left;
         }
@@ -819,7 +941,7 @@
             var left = unary();
             var token;
             while ((token = expect('*', '/', '%'))) {
-                left = binaryFn(left, token.fn, unary());
+                left = binaryFn(left, token, unary());
             }
             return left;
         }
@@ -829,9 +951,9 @@
             if (expect('+')) {
                 return primary();
             } else if ((token = expect('-'))) {
-                return binaryFn(ZERO, token.fn, unary());
+                return binaryFn(ZERO, token, unary());
             } else if ((token = expect('!'))) {
-                return unaryFn(token.fn, unary());
+                return unaryFn(token, unary());
             } else {
                 return primary();
             }
@@ -856,6 +978,7 @@
                 if (token.json) {
                     primary.constant = primary.literal = true;
                 }
+                primary.write = token.write;
             }
 
             var next, context;
@@ -886,6 +1009,9 @@
                 {
                     assign: function (scope, value, locals) {
                         return setter(object(scope, locals), field, value, text);
+                    },
+                    write: function (scope, locals) {
+                        return text;
                     }
                 }
             );
@@ -918,6 +1044,9 @@
                         var key = indexFn(self, locals);
                         // prevent overwriting of Function.constructor which would break ensureSafeObject check
                         return ensureSafeObject(obj(self, locals), text)[key] = value;
+                    },
+                    write: function (scope, locals) {
+                        return o.write(scope, locals) + "[" + indexFn.write(scope, locals) + "]";
                     }
                 });
         }
@@ -930,7 +1059,7 @@
                 } while (expect(','));
             }
             consume(')');
-            return function (scope, locals) {
+            return extend(function (scope, locals) {
                 var args = [],
                     context = contextGetter ? contextGetter(scope, locals) : scope;
 
@@ -942,7 +1071,15 @@
                 return fnPtr.apply
                     ? fnPtr.apply(context, args)
                     : fnPtr(args[0], args[1], args[2], args[3], args[4]);
-            };
+            }, {
+                write: function (scope, locals) {
+                    return "(" + fn.write(scope, locals) + " || noop)" + ".call("
+                        + (contextGetter ? contextGetter.write(scope, locals) : "null")
+                        + argsFn.map(function (argFn) {
+                        return ", " + argFn.write(scope, locals);
+                    }).join(", ") + ")";
+                }
+            });
         }
 
         // This is used with json array declaration
@@ -967,7 +1104,12 @@
                 return array;
             }, {
                 literal: true,
-                constant: allConstant
+                constant: allConstant,
+                write: function (scope, locals) {
+                    return "[" + elementFns.map(function (elementFn) {
+                        return elementFn.write(scope, locals);
+                    }).join(", ") + "]";
+                }
             });
         }
 
@@ -996,7 +1138,12 @@
                 return object;
             }, {
                 literal: true,
-                constant: allConstant
+                constant: allConstant,
+                write: function (scope, locals) {
+                    return "{" + keyValues.map(function (keyValue) {
+                        return keyValue.key + ":" + keyValue.value.write(scope, locals);
+                    }).join(", ") + "}";
+                }
             });
         }
     }
@@ -1175,7 +1322,6 @@
     }
 
 
-
     /**
      * @ngdoc function
      * @name ng.$parse
@@ -1281,7 +1427,6 @@
          register('orderBy', orderByFilter);*/
         registerFilter('uppercase', uppercaseFilter);
         registerFilter('lowercase', lowercaseFilter);
-
 
 
     }
