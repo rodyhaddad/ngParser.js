@@ -693,6 +693,14 @@
         value.literal = !!value.literal;
         value.constant = !!value.constant;
         value.tokens = origTokens;
+
+        value.isolatedFn = new Function("$filter", "noop",
+            "return function ngParserExpression(scope, locals) {" +
+                "    return " + value.write() +
+                "};");
+        value.getIsolatedFn = function () {
+            return value.isolatedFn($filter, noop);
+        };
         return value;
 
         ///////////////////////////////////
