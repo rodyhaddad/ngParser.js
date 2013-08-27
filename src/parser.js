@@ -322,8 +322,6 @@
         'false': "false",
         undefined: "undefined",
         '+': function (self, locals, a, b) {
-            a = a(self, locals);
-            b = b(self, locals);
             if (isDefined(a)) {
                 if (isDefined(b)) {
                     return a.write() + "+" + b.write();
@@ -333,8 +331,6 @@
             return isDefined(b) ? b.write() : "undefined";
         },
         '-': function (self, locals, a, b) {
-            a = a(self, locals);
-            b = b(self, locals);
             return (isDefined(a) ? a.write() : "0") + "-" + (isDefined(b) ? b.write() : "0");
         },
         '*': function (self, locals, a, b) {
