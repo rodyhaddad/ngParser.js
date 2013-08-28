@@ -690,7 +690,7 @@
         value.constant = !!value.constant;
         value.tokens = origTokens;
 
-        var code = "return function ngParserExpression(scope, locals) {" +
+        var code = "function ngParserExpression(scope, locals) {" +
             "    return " + value.write() +
             "};";
         value.isolatedFn = new Function("$filter", "noop", code);
