@@ -2,7 +2,7 @@
 
     'use strict';
 
-    var toString = Object.prototype.toString
+    var toString = Object.prototype.toString;
 
     function noop() {
     }
@@ -19,7 +19,7 @@
 
     function uppercase(string) {
         return isString(string) ? string.toUpperCase() : string;
-    };
+    }
 
     function isFunction(value) {
         return typeof value == 'function';
@@ -192,39 +192,44 @@
     }
 
 
-    var $parseMinErr = minErr('$parse');
+    var $parseMinErr = minErr('$parse'),
+        promiseWarning = noop,
+        promiseWarningCache = {};
 
-// Sandboxing Angular Expressions
+    // Sandboxing Angular Expressions
 // ------------------------------
-// Angular expressions are generally considered safe because these expressions only have direct access to $scope and
-// locals. However, one can obtain the ability to execute arbitrary JS code by obtaining a reference to native JS
-// functions such as the Function constructor.
+// Angular expressions are generally considered safe because these expressions only have direct
+// access to $scope and locals. However, one can obtain the ability to execute arbitrary JS code by
+// obtaining a reference to native JS functions such as the Function constructor.
 //
 // As an example, consider the following Angular expression:
 //
 //   {}.toString.constructor(alert("evil JS code"))
 //
-// We want to prevent this type of access. For the sake of performance, during the lexing phase we disallow any "dotted"
-// access to any member named "constructor".
+// We want to prevent this type of access. For the sake of performance, during the lexing phase we
+// disallow any "dotted" access to any member named "constructor".
 //
-// For reflective calls (a[b]) we check that the value of the lookup is not the Function constructor while evaluating
-// the expression, which is a stronger but more expensive test. Since reflective calls are expensive anyway, this is not
-// such a big deal compared to static dereferencing.
+// For reflective calls (a[b]) we check that the value of the lookup is not the Function constructor
+// while evaluating the expression, which is a stronger but more expensive test. Since reflective
+// calls are expensive anyway, this is not such a big deal compared to static dereferencing.
 //
-// This sandboxing technique is not perfect and doesn't aim to be. The goal is to prevent exploits against the
-// expression language, but not to prevent exploits that were enabled by exposing sensitive JavaScript or browser apis
-// on Scope. Exposing such objects on a Scope is never a good practice and therefore we are not even trying to protect
-// against interaction with an object explicitly exposed in this way.
+// This sandboxing technique is not perfect and doesn't aim to be. The goal is to prevent exploits
+// against the expression language, but not to prevent exploits that were enabled by exposing
+// sensitive JavaScript or browser apis on Scope. Exposing such objects on a Scope is never a good
+// practice and therefore we are not even trying to protect against interaction with an object
+// explicitly exposed in this way.
 //
-// A developer could foil the name check by aliasing the Function constructor under a different name on the scope.
+// A developer could foil the name check by aliasing the Function constructor under a different
+// name on the scope.
 //
-// In general, it is not possible to access a Window object from an angular expression unless a window or some DOM
-// object that has a reference to window is published onto a Scope.
+// In general, it is not possible to access a Window object from an angular expression unless a
+// window or some DOM object that has a reference to window is published onto a Scope.
 
     function ensureSafeMemberName(name, fullExpression) {
         if (name === "constructor") {
             throw $parseMinErr('isecfld',
-                'Referencing "constructor" field in Angular expressions is disallowed! Expression: {0}', fullExpression);
+                'Referencing "constructor" field in Angular expressions is disallowed! Expression: {0}',
+                fullExpression);
         }
         return name;
     }
@@ -233,16 +238,34 @@
         // nifty check if obj is Function that is fast and works across iframes and other contexts
         if (obj && obj.constructor === obj) {
             throw $parseMinErr('isecfn',
-                'Referencing Function in Angular expressions is disallowed! Expression: {0}', fullExpression);
+                'Referencing Function in Angular expressions is disallowed! Expression: {0}',
+                fullExpression);
+        } else if (// isWindow(obj)
+            obj && obj.document && obj.location && obj.alert && obj.setInterval) {
+            throw $parseMinErr('isecwindow',
+                'Referencing the Window in Angular expressions is disallowed! Expression: {0}',
+                fullExpression);
+        } else if (// isElement(obj)
+            obj && (obj.nodeName || (obj.on && obj.find))) {
+            throw $parseMinErr('isecdom',
+                'Referencing DOM nodes in Angular expressions is disallowed! Expression: {0}',
+                fullExpression);
         } else {
             return obj;
         }
     }
 
     var OPERATORS = {
-        'null': valueFn(null),
-        'true': valueFn(true),
-        'false': valueFn(false),
+        /* jshint bitwise : false */
+        'null': function () {
+            return null;
+        },
+        'true': function () {
+            return true;
+        },
+        'false': function () {
+            return false;
+        },
         undefined: noop,
         '+': function (self, locals, a, b) {
             a = a(self, locals);
@@ -314,240 +337,198 @@
             return !a(self, locals);
         }
     };
+    /* jshint bitwise: true */
     var ESCAPE = {"n": "\n", "f": "\f", "r": "\r", "t": "\t", "v": "\v", "'": "'", '"': '"'};
 
-    forEach({
-        'null': "null",
-        'true': "true",
-        'false': "false",
-        undefined: "undefined",
-        '+': function (self, locals, a, b) {
-            if (isDefined(a)) {
-                if (isDefined(b)) {
-                    return a.write() + "+" + b.write();
-                }
-                return a.write();
-            }
-            return isDefined(b) ? b.write() : "undefined";
-        },
-        '-': function (self, locals, a, b) {
-            return (isDefined(a) ? a.write() : "0") + "-" + (isDefined(b) ? b.write() : "0");
-        },
-        '*': function (self, locals, a, b) {
-            return a.write() + "*" + b.write();
-        },
-        '/': function (self, locals, a, b) {
-            return a.write() + "/" + b.write();
-        },
-        '%': function (self, locals, a, b) {
-            return a.write() + "%" + b.write();
-        },
-        '^': function (self, locals, a, b) {
-            return a.write() + "^" + b.write();
-        },
-        '=': noop,
-        '===': function (self, locals, a, b) {
-            return a.write() + "===" + b.write();
-        },
-        '!==': function (self, locals, a, b) {
-            return a.write() + "!==" + b.write();
-        },
-        '==': function (self, locals, a, b) {
-            return a.write() + "==" + b.write();
-        },
-        '!=': function (self, locals, a, b) {
-            return a.write() + "!=" + b.write();
-        },
-        '<': function (self, locals, a, b) {
-            return a.write() + "<" + b.write();
-        },
-        '>': function (self, locals, a, b) {
-            return a.write() + ">" + b.write();
-        },
-        '<=': function (self, locals, a, b) {
-            return a.write() + "<=" + b.write();
-        },
-        '>=': function (self, locals, a, b) {
-            return a.write() + ">=" + b.write();
-        },
-        '&&': function (self, locals, a, b) {
-            return a.write() + "&&" + b.write();
-        },
-        '||': function (self, locals, a, b) {
-            return a.write() + "||" + b.write();
-        },
-        '&': function (self, locals, a, b) {
-            return a.write() + "&" + b.write();
-        },
-//    '|':function(self, locals, a,b){return a|b;},
-        '|': function (self, locals, a, b) {
-            return b.write(self, locals, a);
-        },
-        '!': function (self, locals, a) {
-            return "!" + a.write();
-        }
-    }, function (writeFn, operator) {
-        OPERATORS[operator].write = isFunction(writeFn) ? writeFn : valueFn(writeFn);
-    });
 
-    function lex(text, csp) {
-        var tokens = [],
-            token,
-            index = 0,
-            json = [],
-            ch,
-            lastCh = ':'; // can start regexp
+/////////////////////////////////////////
 
-        while (index < text.length) {
-            ch = text.charAt(index);
-            if (is('"\'')) {
-                readString(ch);
-            } else if (isNumber(ch) || is('.') && isNumber(peek())) {
-                readNumber();
-            } else if (isIdent(ch)) {
-                readIdent();
-                // identifiers can only be if the preceding char was a { or ,
-                if (was('{,') && json[0] == '{' &&
-                    (token = tokens[tokens.length - 1])) {
-                    token.json = token.text.indexOf('.') == -1;
-                }
-            } else if (is('(){}[].,;:?')) {
-                tokens.push({
-                    index: index,
-                    text: ch,
-                    json: (was(':[,') && is('{[')) || is('}]:,'),
-                    write: valueFn(ch)
-                });
-                if (is('{[')) json.unshift(ch);
-                if (is('}]')) json.shift();
-                index++;
-            } else if (isWhitespace(ch)) {
-                index++;
-                continue;
-            } else {
-                var ch2 = ch + peek(),
-                    ch3 = ch2 + peek(2),
-                    fn = OPERATORS[ch],
-                    fn2 = OPERATORS[ch2],
-                    fn3 = OPERATORS[ch3];
-                if (fn3) {
-                    tokens.push({index: index, text: ch3, fn: fn3, write: fn3.write});
-                    index += 3;
-                } else if (fn2) {
-                    tokens.push({index: index, text: ch2, fn: fn2, write: fn2.write});
-                    index += 2;
-                } else if (fn) {
-                    tokens.push({index: index, text: ch, fn: fn, json: was('[,:') && is('+-'), write: fn.write});
-                    index += 1;
+
+    /**
+     * @constructor
+     */
+    var Lexer = function (options) {
+        this.options = options;
+    };
+
+    Lexer.prototype = {
+        constructor: Lexer,
+
+        lex: function (text) {
+            this.text = text;
+
+            this.index = 0;
+            this.ch = undefined;
+            this.lastCh = ':'; // can start regexp
+
+            this.tokens = [];
+
+            var token;
+            var json = [];
+
+            while (this.index < this.text.length) {
+                this.ch = this.text.charAt(this.index);
+                if (this.is('"\'')) {
+                    this.readString(this.ch);
+                } else if (this.isNumber(this.ch) || this.is('.') && this.isNumber(this.peek())) {
+                    this.readNumber();
+                } else if (this.isIdent(this.ch)) {
+                    this.readIdent();
+                    // identifiers can only be if the preceding char was a { or ,
+                    if (this.was('{,') && json[0] === '{' &&
+                        (token = this.tokens[this.tokens.length - 1])) {
+                        token.json = token.text.indexOf('.') === -1;
+                    }
+                } else if (this.is('(){}[].,;:?')) {
+                    this.tokens.push({
+                        index: this.index,
+                        text: this.ch,
+                        json: (this.was(':[,') && this.is('{[')) || this.is('}]:,')
+                    });
+                    if (this.is('{[')) json.unshift(this.ch);
+                    if (this.is('}]')) json.shift();
+                    this.index++;
+                } else if (this.isWhitespace(this.ch)) {
+                    this.index++;
+                    continue;
                 } else {
-                    throwError("Unexpected next character ", index, index + 1);
+                    var ch2 = this.ch + this.peek();
+                    var ch3 = ch2 + this.peek(2);
+                    var fn = OPERATORS[this.ch];
+                    var fn2 = OPERATORS[ch2];
+                    var fn3 = OPERATORS[ch3];
+                    if (fn3) {
+                        this.tokens.push({index: this.index, text: ch3, fn: fn3});
+                        this.index += 3;
+                    } else if (fn2) {
+                        this.tokens.push({index: this.index, text: ch2, fn: fn2});
+                        this.index += 2;
+                    } else if (fn) {
+                        this.tokens.push({
+                            index: this.index,
+                            text: this.ch,
+                            fn: fn,
+                            json: (this.was('[,:') && this.is('+-'))
+                        });
+                        this.index += 1;
+                    } else {
+                        this.throwError('Unexpected next character ', this.index, this.index + 1);
+                    }
                 }
+                this.lastCh = this.ch;
             }
-            lastCh = ch;
-        }
-        return tokens;
+            return this.tokens;
+        },
 
-        function is(chars) {
-            return chars.indexOf(ch) != -1;
-        }
+        is: function (chars) {
+            return chars.indexOf(this.ch) !== -1;
+        },
 
-        function was(chars) {
-            return chars.indexOf(lastCh) != -1;
-        }
+        was: function (chars) {
+            return chars.indexOf(this.lastCh) !== -1;
+        },
 
-        function peek(i) {
+        peek: function (i) {
             var num = i || 1;
-            return index + num < text.length ? text.charAt(index + num) : false;
-        }
+            return (this.index + num < this.text.length) ? this.text.charAt(this.index + num) : false;
+        },
 
-        function isNumber(ch) {
-            return '0' <= ch && ch <= '9';
-        }
+        isNumber: function (ch) {
+            return ('0' <= ch && ch <= '9');
+        },
 
-        function isWhitespace(ch) {
-            return ch == ' ' || ch == '\r' || ch == '\t' ||
-                ch == '\n' || ch == '\v' || ch == '\u00A0'; // IE treats non-breaking space as \u00A0
-        }
+        isWhitespace: function (ch) {
+            // IE treats non-breaking space as \u00A0
+            return (ch === ' ' || ch === '\r' || ch === '\t' ||
+                ch === '\n' || ch === '\v' || ch === '\u00A0');
+        },
 
-        function isIdent(ch) {
-            return 'a' <= ch && ch <= 'z' ||
+        isIdent: function (ch) {
+            return ('a' <= ch && ch <= 'z' ||
                 'A' <= ch && ch <= 'Z' ||
-                '_' == ch || ch == '$';
-        }
+                '_' === ch || ch === '$');
+        },
 
-        function isExpOperator(ch) {
-            return ch == '-' || ch == '+' || isNumber(ch);
-        }
+        isExpOperator: function (ch) {
+            return (ch === '-' || ch === '+' || this.isNumber(ch));
+        },
 
-        function throwError(error, start, end) {
-            end = end || index;
-            var colStr = (isDefined(start) ?
-                "s " + start + "-" + index + " [" + text.substring(start, end) + "]"
-                : " " + end);
-            throw $parseMinErr('lexerr', "Lexer Error: {0} at column{1} in expression [{2}].",
-                error, colStr, text);
-        }
+        throwError: function (error, start, end) {
+            end = end || this.index;
+            var colStr = (isDefined(start)
+                ? 's ' + start + '-' + this.index + ' [' + this.text.substring(start, end) + ']'
+                : ' ' + end);
+            throw $parseMinErr('lexerr', 'Lexer Error: {0} at column{1} in expression [{2}].',
+                error, colStr, this.text);
+        },
 
-        function readNumber() {
-            var number = "";
-            var start = index;
-            while (index < text.length) {
-                var ch = lowercase(text.charAt(index));
-                if (ch == '.' || isNumber(ch)) {
+        readNumber: function () {
+            var number = '';
+            var start = this.index;
+            while (this.index < this.text.length) {
+                var ch = lowercase(this.text.charAt(this.index));
+                if (ch == '.' || this.isNumber(ch)) {
                     number += ch;
                 } else {
-                    var peekCh = peek();
-                    if (ch == 'e' && isExpOperator(peekCh)) {
+                    var peekCh = this.peek();
+                    if (ch == 'e' && this.isExpOperator(peekCh)) {
                         number += ch;
-                    } else if (isExpOperator(ch) &&
-                        peekCh && isNumber(peekCh) &&
+                    } else if (this.isExpOperator(ch) &&
+                        peekCh && this.isNumber(peekCh) &&
                         number.charAt(number.length - 1) == 'e') {
                         number += ch;
-                    } else if (isExpOperator(ch) &&
-                        (!peekCh || !isNumber(peekCh)) &&
+                    } else if (this.isExpOperator(ch) &&
+                        (!peekCh || !this.isNumber(peekCh)) &&
                         number.charAt(number.length - 1) == 'e') {
-                        throwError('Invalid exponent');
+                        this.throwError('Invalid exponent');
                     } else {
                         break;
                     }
                 }
-                index++;
+                this.index++;
             }
             number = 1 * number;
-            tokens.push({index: start, text: number, json: true,
+            this.tokens.push({
+                index: start,
+                text: number,
+                json: true,
                 fn: function () {
                     return number;
-                }, write: valueFn(number)});
-        }
+                }
+            });
+        },
 
-        function readIdent() {
-            var ident = "",
-                start = index,
-                lastDot, peekIndex, methodName, ch;
+        readIdent: function () {
+            var parser = this;
 
-            while (index < text.length) {
-                ch = text.charAt(index);
-                if (ch == '.' || isIdent(ch) || isNumber(ch)) {
-                    if (ch == '.') lastDot = index;
+            var ident = '';
+            var start = this.index;
+
+            var lastDot, peekIndex, methodName, ch;
+
+            while (this.index < this.text.length) {
+                ch = this.text.charAt(this.index);
+                if (ch === '.' || this.isIdent(ch) || this.isNumber(ch)) {
+                    if (ch === '.') lastDot = this.index;
                     ident += ch;
                 } else {
                     break;
                 }
-                index++;
+                this.index++;
             }
 
             //check if this is not a method invocation and if it is back out to last dot
             if (lastDot) {
-                peekIndex = index;
-                while (peekIndex < text.length) {
-                    ch = text.charAt(peekIndex);
-                    if (ch == '(') {
+                peekIndex = this.index;
+                while (peekIndex < this.text.length) {
+                    ch = this.text.charAt(peekIndex);
+                    if (ch === '(') {
                         methodName = ident.substr(lastDot - start + 1);
                         ident = ident.substr(0, lastDot - start);
-                        index = peekIndex;
+                        this.index = peekIndex;
                         break;
                     }
-                    if (isWhitespace(ch)) {
+                    if (this.isWhitespace(ch)) {
                         peekIndex++;
                     } else {
                         break;
@@ -561,67 +542,52 @@
                 text: ident
             };
 
+            // OPERATORS is our own object so we don't need to use special hasOwnPropertyFn
             if (OPERATORS.hasOwnProperty(ident)) {
-                token.fn = token.json = OPERATORS[ident];
-                token.write = token.fn.write;
+                token.fn = OPERATORS[ident];
+                token.json = OPERATORS[ident];
             } else {
-                var getter = getterFn(ident, csp, text);
+                var getter = getterFn(ident, this.options, this.text);
                 token.fn = extend(function (self, locals) {
                     return (getter(self, locals));
                 }, {
                     assign: function (self, value) {
-                        return setter(self, ident, value, text);
+                        return setter(self, ident, value, parser.text, parser.options);
                     }
                 });
-                token.write = function (scope, locals) {
-                    var splitIdent = ident.split("."), firstIdent = splitIdent.shift(), lastIdent = splitIdent.pop();
-                    var value = "(locals.hasOwnProperty('" + firstIdent + "')?locals." + firstIdent + ":scope." + firstIdent + ")";
-                    if (lastIdent) {
-                        value = "(" + value + " || {})";
-                    }
-                    while (splitIdent.length) {
-                        value = "(" + value + "." + splitIdent.shift() + " || {})";
-                    }
-                    if (lastIdent) {
-                        value += "." + lastIdent;
-                    }
-                    return value;
-                }
             }
 
-            tokens.push(token);
+            this.tokens.push(token);
 
             if (methodName) {
-                tokens.push({
+                this.tokens.push({
                     index: lastDot,
                     text: '.',
-                    json: false,
-                    write: valueFn('.')
+                    json: false
                 });
-                tokens.push({
+                this.tokens.push({
                     index: lastDot + 1,
                     text: methodName,
-                    json: false,
-                    write: valueFn(methodName)
+                    json: false
                 });
             }
-        }
+        },
 
-        function readString(quote) {
-            var start = index;
-            index++;
-            var string = "";
+        readString: function (quote) {
+            var start = this.index;
+            this.index++;
+            var string = '';
             var rawString = quote;
             var escape = false;
-            while (index < text.length) {
-                var ch = text.charAt(index);
+            while (this.index < this.text.length) {
+                var ch = this.text.charAt(this.index);
                 rawString += ch;
                 if (escape) {
-                    if (ch == 'u') {
-                        var hex = text.substring(index + 1, index + 5);
+                    if (ch === 'u') {
+                        var hex = this.text.substring(this.index + 1, this.index + 5);
                         if (!hex.match(/[\da-f]{4}/i))
-                            throwError("Invalid unicode escape [\\u" + hex + "]");
-                        index += 4;
+                            this.throwError('Invalid unicode escape [\\u' + hex + ']');
+                        this.index += 4;
                         string += String.fromCharCode(parseInt(hex, 16));
                     } else {
                         var rep = ESCAPE[ch];
@@ -632,196 +598,227 @@
                         }
                     }
                     escape = false;
-                } else if (ch == '\\') {
+                } else if (ch === '\\') {
                     escape = true;
-                } else if (ch == quote) {
-                    index++;
-                    tokens.push({
+                } else if (ch === quote) {
+                    this.index++;
+                    this.tokens.push({
                         index: start,
                         text: rawString,
                         string: string,
                         json: true,
                         fn: function () {
                             return string;
-                        },
-                        write: valueFn(rawString)
+                        }
                     });
                     return;
                 } else {
                     string += ch;
                 }
-                index++;
+                this.index++;
             }
-            throwError("Unterminated quote", start);
+            this.throwError('Unterminated quote', start);
         }
-    }
+    };
 
 
-    function parser(text, json, $filter, csp) {
-        var ZERO = valueFn(0),
-            value,
-            tokens = lex(text, csp),
-            origTokens = [].concat(tokens),
-            assignment = _assignment,
-            functionCall = _functionCall,
-            fieldAccess = _fieldAccess,
-            objectIndex = _objectIndex,
-            filterChain = _filterChain;
+    /**
+     * @constructor
+     */
+    var Parser = function (lexer, $filter, options) {
+        this.lexer = lexer;
+        this.$filter = $filter;
+        this.options = options;
+    };
 
-        if (json) {
-            // The extra level of aliasing is here, just in case the lexer misses something, so that
-            // we prevent any accidental execution in JSON.
-            assignment = logicalOR;
-            functionCall =
-                fieldAccess =
-                    objectIndex =
-                        filterChain =
-                            function () {
-                                throwError("is not valid json", {text: text, index: 0});
+    Parser.ZERO = function () {
+        return 0;
+    };
+
+    Parser.prototype = {
+        constructor: Parser,
+
+        parse: function (text, json) {
+            this.text = text;
+
+            //TODO(i): strip all the obsolte json stuff from this file
+            this.json = json;
+
+            this.tokens = this.lexer.lex(text);
+
+            if (json) {
+                // The extra level of aliasing is here, just in case the lexer misses something, so that
+                // we prevent any accidental execution in JSON.
+                this.assignment = this.logicalOR;
+
+                this.functionCall =
+                    this.fieldAccess =
+                        this.objectIndex =
+                            this.filterChain = function () {
+                                this.throwError('is not valid json', {text: text, index: 0});
                             };
-            value = primary();
-        } else {
-            value = statements();
-        }
-        if (tokens.length !== 0) {
-            throwError("is an unexpected token", tokens[0]);
-        }
-        value.literal = !!value.literal;
-        value.constant = !!value.constant;
-        value.tokens = origTokens;
+            }
 
-        var code = "function ngParserExpression(scope, locals) {" +
-            "    return " + value.write() +
-            "};";
-        value.isolatedFn = new Function("$filter", "noop", code);
-        value.isolatedFn.code = code;
-        value.getIsolatedFn = function () {
-            return value.isolatedFn($filter, noop);
-        };
-        return value;
+            var value = json ? this.primary() : this.statements();
 
-        ///////////////////////////////////
-        function throwError(msg, token) {
+            if (this.tokens.length !== 0) {
+                this.throwError('is an unexpected token', this.tokens[0]);
+            }
+
+            value.literal = !!value.literal;
+            value.constant = !!value.constant;
+
+            return value;
+        },
+
+        primary: function () {
+            var primary;
+            if (this.expect('(')) {
+                primary = this.filterChain();
+                this.consume(')');
+            } else if (this.expect('[')) {
+                primary = this.arrayDeclaration();
+            } else if (this.expect('{')) {
+                primary = this.object();
+            } else {
+                var token = this.expect();
+                primary = token.fn;
+                if (!primary) {
+                    this.throwError('not a primary expression', token);
+                }
+                if (token.json) {
+                    primary.constant = true;
+                    primary.literal = true;
+                }
+            }
+
+            var next, context;
+            while ((next = this.expect('(', '[', '.'))) {
+                if (next.text === '(') {
+                    primary = this.functionCall(primary, context);
+                    context = null;
+                } else if (next.text === '[') {
+                    context = primary;
+                    primary = this.objectIndex(primary);
+                } else if (next.text === '.') {
+                    context = primary;
+                    primary = this.fieldAccess(primary);
+                } else {
+                    this.throwError('IMPOSSIBLE');
+                }
+            }
+            return primary;
+        },
+
+        throwError: function (msg, token) {
             throw $parseMinErr('syntax',
-                "Syntax Error: Token '{0}' {1} at column {2} of the expression [{3}] starting at [{4}].",
-                token.text, msg, (token.index + 1), text, text.substring(token.index));
-        }
+                'Syntax Error: Token \'{0}\' {1} at column {2} of the expression [{3}] starting at [{4}].',
+                token.text, msg, (token.index + 1), this.text, this.text.substring(token.index));
+        },
 
-        function peekToken() {
-            if (tokens.length === 0)
-                throw $parseMinErr('ueoe', "Unexpected end of expression: {0}", text);
-            return tokens[0];
-        }
+        peekToken: function () {
+            if (this.tokens.length === 0)
+                throw $parseMinErr('ueoe', 'Unexpected end of expression: {0}', this.text);
+            return this.tokens[0];
+        },
 
-        function peek(e1, e2, e3, e4) {
-            if (tokens.length > 0) {
-                var token = tokens[0];
+        peek: function (e1, e2, e3, e4) {
+            if (this.tokens.length > 0) {
+                var token = this.tokens[0];
                 var t = token.text;
-                if (t == e1 || t == e2 || t == e3 || t == e4 ||
+                if (t === e1 || t === e2 || t === e3 || t === e4 ||
                     (!e1 && !e2 && !e3 && !e4)) {
                     return token;
                 }
             }
             return false;
-        }
+        },
 
-        function expect(e1, e2, e3, e4) {
-            var token = peek(e1, e2, e3, e4);
+        expect: function (e1, e2, e3, e4) {
+            var token = this.peek(e1, e2, e3, e4);
             if (token) {
-                if (json && !token.json) {
-                    throwError("is not valid json", token);
+                if (this.json && !token.json) {
+                    this.throwError('is not valid json', token);
                 }
-                tokens.shift();
+                this.tokens.shift();
                 return token;
             }
             return false;
-        }
+        },
 
-        function consume(e1) {
-            if (!expect(e1)) {
-                throwError("is unexpected, expecting [" + e1 + "]", peek());
+        consume: function (e1) {
+            if (!this.expect(e1)) {
+                this.throwError('is unexpected, expecting [' + e1 + ']', this.peek());
             }
-        }
+        },
 
-        function unaryFn(token, right) {
+        unaryFn: function (fn, right) {
             return extend(function (self, locals) {
-                return token.fn(self, locals, right);
+                return fn(self, locals, right);
             }, {
-                constant: right.constant,
-                write: token.write
+                constant: right.constant
             });
-        }
+        },
 
-        function ternaryFn(left, middle, right) {
+        ternaryFn: function (left, middle, right) {
             return extend(function (self, locals) {
                 return left(self, locals) ? middle(self, locals) : right(self, locals);
             }, {
-                constant: left.constant && middle.constant && right.constant,
-                write: function () {
-                    return left.write() + "?" + middle.write() + ":" + right.write();
-                }
+                constant: left.constant && middle.constant && right.constant
             });
-        }
+        },
 
-        function binaryFn(left, token, right) {
+        binaryFn: function (left, fn, right) {
             return extend(function (self, locals) {
-                return token.fn(self, locals, left, right);
+                return fn(self, locals, left, right);
             }, {
-                constant: left.constant && right.constant,
-                write: function (self, locals) {
-                    return token.write(self, locals, left, right);
-                }
+                constant: left.constant && right.constant
             });
-        }
+        },
 
-        function statements() {
+        statements: function () {
             var statements = [];
             while (true) {
-                if (tokens.length > 0 && !peek('}', ')', ';', ']'))
-                    statements.push(filterChain());
-                if (!expect(';')) {
+                if (this.tokens.length > 0 && !this.peek('}', ')', ';', ']'))
+                    statements.push(this.filterChain());
+                if (!this.expect(';')) {
                     // optimize for the common case where there is only one statement.
                     // TODO(size): maybe we should not support multiple statements?
-                    return statements.length == 1
+                    return (statements.length === 1)
                         ? statements[0]
-                        : extend(function (self, locals) {
+                        : function (self, locals) {
                         var value;
                         for (var i = 0; i < statements.length; i++) {
                             var statement = statements[i];
-                            if (statement)
+                            if (statement) {
                                 value = statement(self, locals);
+                            }
                         }
                         return value;
-                    }, {
-                        write: function (self, locals) {
-                            return statements.map(function (statement) {
-                                return statement.write(self, locals);
-                            }).join(";");
-                        }
-                    });
+                    };
                 }
             }
-        }
+        },
 
-        function _filterChain() {
-            var left = expression();
+        filterChain: function () {
+            var left = this.expression();
             var token;
             while (true) {
-                if ((token = expect('|'))) {
-                    left = binaryFn(left, token, filter());
+                if ((token = this.expect('|'))) {
+                    left = this.binaryFn(left, token.fn, this.filter());
                 } else {
                     return left;
                 }
             }
-        }
+        },
 
-        function filter() {
-            var token = expect();
-            var fn = $filter(token.text), filterName = token.text;
+        filter: function () {
+            var token = this.expect();
+            var fn = this.$filter(token.text);
             var argsFn = [];
             while (true) {
-                if ((token = expect(':'))) {
-                    argsFn.push(expression());
+                if ((token = this.expect(':'))) {
+                    argsFn.push(this.expression());
                 } else {
                     var fnInvoke = function (self, locals, input) {
                         var args = [input];
@@ -830,272 +827,215 @@
                         }
                         return fn.apply(self, args);
                     };
-                    return extend(function () {
+                    return function () {
                         return fnInvoke;
-                    }, {
-                        write: function (self, locals, input) {
-                            var value = "$filter('" + filterName + "')(";
-                            value += [input].concat(argsFn).map(function (fn) {
-                                return fn.write(self, locals)
-                            }).join(", ");
-                            return value + ")";
-                        }
-                    });
+                    };
                 }
             }
-        }
+        },
 
-        function expression() {
-            return assignment();
-        }
+        expression: function () {
+            return this.assignment();
+        },
 
-        function _assignment() {
-            var left = ternary();
+        assignment: function () {
+            var left = this.ternary();
             var right;
             var token;
-            if ((token = expect('='))) {
+            if ((token = this.expect('='))) {
                 if (!left.assign) {
-                    throwError("implies assignment but [" +
-                        text.substring(0, token.index) + "] can not be assigned to", token);
+                    this.throwError('implies assignment but [' +
+                        this.text.substring(0, token.index) + '] can not be assigned to', token);
                 }
-                right = ternary();
-                return extend(function (scope, locals) {
+                right = this.ternary();
+                return function (scope, locals) {
                     return left.assign(scope, right(scope, locals), locals);
-                }, {
-                    write: function (scope, locals) {
-                        return left.write(scope, locals) + "=" + right.write(scope, locals);
-                    }
-                });
+                };
+            }
+            return left;
+        },
+
+        ternary: function () {
+            var left = this.logicalOR();
+            var middle;
+            var token;
+            if ((token = this.expect('?'))) {
+                middle = this.ternary();
+                if ((token = this.expect(':'))) {
+                    return this.ternaryFn(left, middle, this.ternary());
+                } else {
+                    this.throwError('expected :', token);
+                }
             } else {
                 return left;
             }
-        }
+        },
 
-        function ternary() {
-            var left = logicalOR();
-            var middle;
-            var token;
-            if ((token = expect('?'))) {
-                middle = ternary();
-                if ((token = expect(':'))) {
-                    return ternaryFn(left, middle, ternary());
-                }
-                else {
-                    throwError('expected :', token);
-                }
-            }
-            else {
-                return left;
-            }
-        }
-
-        function logicalOR() {
-            var left = logicalAND();
+        logicalOR: function () {
+            var left = this.logicalAND();
             var token;
             while (true) {
-                if ((token = expect('||'))) {
-                    left = binaryFn(left, token, logicalAND());
+                if ((token = this.expect('||'))) {
+                    left = this.binaryFn(left, token.fn, this.logicalAND());
                 } else {
                     return left;
                 }
             }
-        }
+        },
 
-        function logicalAND() {
-            var left = equality();
+        logicalAND: function () {
+            var left = this.equality();
             var token;
-            if ((token = expect('&&'))) {
-                left = binaryFn(left, token, logicalAND());
+            if ((token = this.expect('&&'))) {
+                left = this.binaryFn(left, token.fn, this.logicalAND());
             }
             return left;
-        }
+        },
 
-        function equality() {
-            var left = relational();
+        equality: function () {
+            var left = this.relational();
             var token;
-            if ((token = expect('==', '!=', '===', '!=='))) {
-                left = binaryFn(left, token, equality());
+            if ((token = this.expect('==', '!=', '===', '!=='))) {
+                left = this.binaryFn(left, token.fn, this.equality());
             }
             return left;
-        }
+        },
 
-        function relational() {
-            var left = additive();
+        relational: function () {
+            var left = this.additive();
             var token;
-            if ((token = expect('<', '>', '<=', '>='))) {
-                left = binaryFn(left, token, relational());
+            if ((token = this.expect('<', '>', '<=', '>='))) {
+                left = this.binaryFn(left, token.fn, this.relational());
             }
             return left;
-        }
+        },
 
-        function additive() {
-            var left = multiplicative();
+        additive: function () {
+            var left = this.multiplicative();
             var token;
-            while ((token = expect('+', '-'))) {
-                left = binaryFn(left, token, multiplicative());
+            while ((token = this.expect('+', '-'))) {
+                left = this.binaryFn(left, token.fn, this.multiplicative());
             }
             return left;
-        }
+        },
 
-        function multiplicative() {
-            var left = unary();
+        multiplicative: function () {
+            var left = this.unary();
             var token;
-            while ((token = expect('*', '/', '%'))) {
-                left = binaryFn(left, token, unary());
+            while ((token = this.expect('*', '/', '%'))) {
+                left = this.binaryFn(left, token.fn, this.unary());
             }
             return left;
-        }
+        },
 
-        function unary() {
+        unary: function () {
             var token;
-            if (expect('+')) {
-                return primary();
-            } else if ((token = expect('-'))) {
-                return binaryFn(ZERO, token, unary());
-            } else if ((token = expect('!'))) {
-                return unaryFn(token, unary());
+            if (this.expect('+')) {
+                return this.primary();
+            } else if ((token = this.expect('-'))) {
+                return this.binaryFn(Parser.ZERO, token.fn, this.unary());
+            } else if ((token = this.expect('!'))) {
+                return this.unaryFn(token.fn, this.unary());
             } else {
-                return primary();
+                return this.primary();
             }
-        }
+        },
 
+        fieldAccess: function (object) {
+            var parser = this;
+            var field = this.expect().text;
+            var getter = getterFn(field, this.options, this.text);
 
-        function primary() {
-            var primary;
-            if (expect('(')) {
-                primary = filterChain();
-                consume(')');
-            } else if (expect('[')) {
-                primary = arrayDeclaration();
-            } else if (expect('{')) {
-                primary = object();
-            } else {
-                var token = expect();
-                primary = token.fn;
-                if (!primary) {
-                    throwError("not a primary expression", token);
+            return extend(function (scope, locals, self) {
+                return getter(self || object(scope, locals), locals);
+            }, {
+                assign: function (scope, value, locals) {
+                    return setter(object(scope, locals), field, value, parser.text, parser.options);
                 }
-                if (token.json) {
-                    primary.constant = primary.literal = true;
-                }
-                primary.write = token.write;
-            }
+            });
+        },
 
-            var next, context;
-            while ((next = expect('(', '[', '.'))) {
-                if (next.text === '(') {
-                    primary = functionCall(primary, context);
-                    context = null;
-                } else if (next.text === '[') {
-                    context = primary;
-                    primary = objectIndex(primary);
-                } else if (next.text === '.') {
-                    context = primary;
-                    primary = fieldAccess(primary);
-                } else {
-                    throwError("IMPOSSIBLE");
-                }
-            }
-            return primary;
-        }
+        objectIndex: function (obj) {
+            var parser = this;
 
-        function _fieldAccess(object) {
-            var field = expect().text;
-            var getter = getterFn(field, csp, text);
-            return extend(
-                function (scope, locals, self) {
-                    return getter(self || object(scope, locals), locals);
-                },
-                {
-                    assign: function (scope, value, locals) {
-                        return setter(object(scope, locals), field, value, text);
-                    },
-                    write: function (scope, locals) {
-                        return text;
+            var indexFn = this.expression();
+            this.consume(']');
+
+            return extend(function (self, locals) {
+                var o = obj(self, locals),
+                    i = indexFn(self, locals),
+                    v, p;
+
+                if (!o) return undefined;
+                v = ensureSafeObject(o[i], parser.text);
+                if (v && v.then && parser.options.unwrapPromises) {
+                    p = v;
+                    if (!('$$v' in v)) {
+                        p.$$v = undefined;
+                        p.then(function (val) {
+                            p.$$v = val;
+                        });
                     }
+                    v = v.$$v;
                 }
-            );
-        }
+                return v;
+            }, {
+                assign: function (self, value, locals) {
+                    var key = indexFn(self, locals);
+                    // prevent overwriting of Function.constructor which would break ensureSafeObject check
+                    var safe = ensureSafeObject(obj(self, locals), parser.text);
+                    return safe[key] = value;
+                }
+            });
+        },
 
-        function _objectIndex(obj) {
-            var indexFn = expression();
-            consume(']');
-            return extend(
-                function (self, locals) {
-                    var o = obj(self, locals),
-                        i = indexFn(self, locals),
-                        v, p;
-
-                    if (!o) return undefined;
-                    v = ensureSafeObject(o[i], text);
-                    if (v && v.then) {
-                        p = v;
-                        if (!('$$v' in v)) {
-                            p.$$v = undefined;
-                            p.then(function (val) {
-                                p.$$v = val;
-                            });
-                        }
-                        v = v.$$v;
-                    }
-                    return v;
-                }, {
-                    assign: function (self, value, locals) {
-                        var key = indexFn(self, locals);
-                        // prevent overwriting of Function.constructor which would break ensureSafeObject check
-                        return ensureSafeObject(obj(self, locals), text)[key] = value;
-                    },
-                    write: function (scope, locals) {
-                        return o.write(scope, locals) + "[" + indexFn.write(scope, locals) + "]";
-                    }
-                });
-        }
-
-        function _functionCall(fn, contextGetter) {
+        functionCall: function (fn, contextGetter) {
             var argsFn = [];
-            if (peekToken().text != ')') {
+            if (this.peekToken().text !== ')') {
                 do {
-                    argsFn.push(expression());
-                } while (expect(','));
+                    argsFn.push(this.expression());
+                } while (this.expect(','));
             }
-            consume(')');
-            return extend(function (scope, locals) {
-                var args = [],
-                    context = contextGetter ? contextGetter(scope, locals) : scope;
+            this.consume(')');
+
+            var parser = this;
+
+            return function (scope, locals) {
+                var args = [];
+                var context = contextGetter ? contextGetter(scope, locals) : scope;
 
                 for (var i = 0; i < argsFn.length; i++) {
                     args.push(argsFn[i](scope, locals));
                 }
                 var fnPtr = fn(scope, locals, context) || noop;
-                // IE stupidity!
-                return fnPtr.apply
+
+                ensureSafeObject(context, parser.text);
+                ensureSafeObject(fnPtr, parser.text);
+
+                // IE stupidity! (IE doesn't have apply for some native functions)
+                var v = fnPtr.apply
                     ? fnPtr.apply(context, args)
                     : fnPtr(args[0], args[1], args[2], args[3], args[4]);
-            }, {
-                write: function (scope, locals) {
-                    return "(" + fn.write(scope, locals) + " || noop)" + ".call("
-                        + (contextGetter ? contextGetter.write(scope, locals) : "null")
-                        + argsFn.map(function (argFn) {
-                        return ", " + argFn.write(scope, locals);
-                    }).join(", ") + ")";
-                }
-            });
-        }
+
+                return ensureSafeObject(v, parser.text);
+            };
+        },
 
         // This is used with json array declaration
-        function arrayDeclaration() {
+        arrayDeclaration: function () {
             var elementFns = [];
             var allConstant = true;
-            if (peekToken().text != ']') {
+            if (this.peekToken().text !== ']') {
                 do {
-                    var elementFn = expression();
+                    var elementFn = this.expression();
                     elementFns.push(elementFn);
                     if (!elementFn.constant) {
                         allConstant = false;
                     }
-                } while (expect(','));
+                } while (this.expect(','));
             }
-            consume(']');
+            this.consume(']');
+
             return extend(function (self, locals) {
                 var array = [];
                 for (var i = 0; i < elementFns.length; i++) {
@@ -1104,31 +1044,27 @@
                 return array;
             }, {
                 literal: true,
-                constant: allConstant,
-                write: function (scope, locals) {
-                    return "[" + elementFns.map(function (elementFn) {
-                        return elementFn.write(scope, locals);
-                    }).join(", ") + "]";
-                }
+                constant: allConstant
             });
-        }
+        },
 
-        function object() {
+        object: function () {
             var keyValues = [];
             var allConstant = true;
-            if (peekToken().text != '}') {
+            if (this.peekToken().text !== '}') {
                 do {
-                    var token = expect(),
+                    var token = this.expect(),
                         key = token.string || token.text;
-                    consume(":");
-                    var value = expression();
+                    this.consume(':');
+                    var value = this.expression();
                     keyValues.push({key: key, value: value});
                     if (!value.constant) {
                         allConstant = false;
                     }
-                } while (expect(','));
+                } while (this.expect(','));
             }
-            consume('}');
+            this.consume('}');
+
             return extend(function (self, locals) {
                 var object = {};
                 for (var i = 0; i < keyValues.length; i++) {
@@ -1138,21 +1074,20 @@
                 return object;
             }, {
                 literal: true,
-                constant: allConstant,
-                write: function (scope, locals) {
-                    return "{" + keyValues.map(function (keyValue) {
-                        return keyValue.key + ":" + keyValue.value.write(scope, locals);
-                    }).join(", ") + "}";
-                }
+                constant: allConstant
             });
         }
-    }
+    };
+
 
 //////////////////////////////////////////////////
 // Parser helper functions
 //////////////////////////////////////////////////
 
-    function setter(obj, path, setValue, fullExp) {
+    function setter(obj, path, setValue, fullExp, options) {
+        //needed?
+        options = options || {};
+
         var element = path.split('.'), key;
         for (var i = 0; element.length > 1; i++) {
             key = ensureSafeMemberName(element.shift(), fullExp);
@@ -1162,7 +1097,8 @@
                 obj[key] = propertyObj;
             }
             obj = propertyObj;
-            if (obj.then) {
+            if (obj.then && options.unwrapPromises) {
+                promiseWarning(fullExp);
                 if (!("$$v" in obj)) {
                     (function (promise) {
                         promise.then(function (val) {
@@ -1188,13 +1124,35 @@
      * - http://jsperf.com/angularjs-parse-getter/4
      * - http://jsperf.com/path-evaluation-simplified/7
      */
-    function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp) {
+    function cspSafeGetterFn(key0, key1, key2, key3, key4, fullExp, options) {
         ensureSafeMemberName(key0, fullExp);
         ensureSafeMemberName(key1, fullExp);
         ensureSafeMemberName(key2, fullExp);
         ensureSafeMemberName(key3, fullExp);
         ensureSafeMemberName(key4, fullExp);
-        return function (scope, locals) {
+
+        return !options.unwrapPromises
+            ? function cspSafeGetter(scope, locals) {
+            var pathVal = (locals && locals.hasOwnProperty(key0)) ? locals : scope;
+
+            if (pathVal === null || pathVal === undefined) return pathVal;
+            pathVal = pathVal[key0];
+
+            if (!key1 || pathVal === null || pathVal === undefined) return pathVal;
+            pathVal = pathVal[key1];
+
+            if (!key2 || pathVal === null || pathVal === undefined) return pathVal;
+            pathVal = pathVal[key2];
+
+            if (!key3 || pathVal === null || pathVal === undefined) return pathVal;
+            pathVal = pathVal[key3];
+
+            if (!key4 || pathVal === null || pathVal === undefined) return pathVal;
+            pathVal = pathVal[key4];
+
+            return pathVal;
+        }
+            : function cspSafePromiseEnabledGetter(scope, locals) {
             var pathVal = (locals && locals.hasOwnProperty(key0)) ? locals : scope,
                 promise;
 
@@ -1202,6 +1160,7 @@
 
             pathVal = pathVal[key0];
             if (pathVal && pathVal.then) {
+                promiseWarning(fullExp);
                 if (!("$$v" in pathVal)) {
                     promise = pathVal;
                     promise.$$v = undefined;
@@ -1215,6 +1174,7 @@
 
             pathVal = pathVal[key1];
             if (pathVal && pathVal.then) {
+                promiseWarning(fullExp);
                 if (!("$$v" in pathVal)) {
                     promise = pathVal;
                     promise.$$v = undefined;
@@ -1228,6 +1188,7 @@
 
             pathVal = pathVal[key2];
             if (pathVal && pathVal.then) {
+                promiseWarning(fullExp);
                 if (!("$$v" in pathVal)) {
                     promise = pathVal;
                     promise.$$v = undefined;
@@ -1241,6 +1202,7 @@
 
             pathVal = pathVal[key3];
             if (pathVal && pathVal.then) {
+                promiseWarning(fullExp);
                 if (!("$$v" in pathVal)) {
                     promise = pathVal;
                     promise.$$v = undefined;
@@ -1254,6 +1216,7 @@
 
             pathVal = pathVal[key4];
             if (pathVal && pathVal.then) {
+                promiseWarning(fullExp);
                 if (!("$$v" in pathVal)) {
                     promise = pathVal;
                     promise.$$v = undefined;
@@ -1267,7 +1230,10 @@
         };
     }
 
-    function getterFn(path, csp, fullExp) {
+    function getterFn(path, options, fullExp) {
+        // Check whether the cache has this getter already.
+        // We can use hasOwnProperty directly on the cache because we ensure,
+        // see below, that the cache never stores a path called 'hasOwnProperty'
         if (getterFnCache.hasOwnProperty(path)) {
             return getterFnCache[path];
         }
@@ -1276,20 +1242,22 @@
             pathKeysLength = pathKeys.length,
             fn;
 
-        if (csp) {
-            fn = (pathKeysLength < 6)
-                ? cspSafeGetterFn(pathKeys[0], pathKeys[1], pathKeys[2], pathKeys[3], pathKeys[4], fullExp)
-                : function (scope, locals) {
-                var i = 0, val;
-                do {
-                    val = cspSafeGetterFn(
-                        pathKeys[i++], pathKeys[i++], pathKeys[i++], pathKeys[i++], pathKeys[i++], fullExp
-                    )(scope, locals);
+        if (options.csp) {
+            if (pathKeysLength < 6) {
+                fn = cspSafeGetterFn(pathKeys[0], pathKeys[1], pathKeys[2], pathKeys[3], pathKeys[4], fullExp,
+                    options);
+            } else {
+                fn = function (scope, locals) {
+                    var i = 0, val;
+                    do {
+                        val = cspSafeGetterFn(pathKeys[i++], pathKeys[i++], pathKeys[i++], pathKeys[i++],
+                            pathKeys[i++], fullExp, options)(scope, locals);
 
-                    locals = undefined; // clear after first iteration
-                    scope = val;
-                } while (i < pathKeysLength);
-                return val;
+                        locals = undefined; // clear after first iteration
+                        scope = val;
+                    } while (i < pathKeysLength);
+                    return val;
+                };
             }
         } else {
             var code = 'var l, fn, p;\n';
@@ -1302,25 +1270,40 @@
                     ? 's'
                     // but if we are first then we check locals first, and if so read it first
                     : '((k&&k.hasOwnProperty("' + key + '"))?k:s)') + '["' + key + '"]' + ';\n' +
-                    'if (s && s.then) {\n' +
-                    ' if (!("$$v" in s)) {\n' +
-                    ' p=s;\n' +
-                    ' p.$$v = undefined;\n' +
-                    ' p.then(function(v) {p.$$v=v;});\n' +
-                    '}\n' +
-                    ' s=s.$$v\n' +
-                    '}\n';
+                    (options.unwrapPromises
+                        ? 'if (s && s.then) {\n' +
+                        ' pw("' + fullExp.replace(/(["\r\n])/g, '\\$1') + '");\n' +
+                        ' if (!("$$v" in s)) {\n' +
+                        ' p=s;\n' +
+                        ' p.$$v = undefined;\n' +
+                        ' p.then(function(v) {p.$$v=v;});\n' +
+                        '}\n' +
+                        ' s=s.$$v\n' +
+                        '}\n'
+                        : '');
             });
             code += 'return s;';
-            fn = Function('s', 'k', code); // s=scope, k=locals
-            fn.toString = function () {
+
+            /* jshint -W054 */
+            var evaledFnGetter = new Function('s', 'k', 'pw', code); // s=scope, k=locals, pw=promiseWarning
+            /* jshint +W054 */
+            evaledFnGetter.toString = function () {
                 return code;
+            };
+            fn = function (scope, locals) {
+                return evaledFnGetter(scope, locals, promiseWarning);
             };
         }
 
-        return getterFnCache[path] = fn;
+        // Only cache the value if it's not going to mess up the cache object
+        // This is more performant that using Object.prototype.hasOwnProperty.call
+        if (path !== 'hasOwnProperty') {
+            getterFnCache[path] = fn;
+        }
+        return fn;
     }
 
+///////////////////////////////////
 
     /**
      * @ngdoc function
@@ -1361,41 +1344,76 @@
      *        set to a function to change its value on the given context.
      *
      */
+
+
+    /**
+     * @ngdoc object
+     * @name ng.$parseProvider
+     * @function
+     *
+     * @description
+     * `$parseProvider` can be used for configuring the default behavior of the {@link ng.$parse $parse}
+     *  service.
+     */
     function $ParseProvider() {
         var cache = {},
+            $parseOptions = {
+                csp: false,
+                unwrapPromises: false,
+                logPromiseWarnings: true
+            },
             filters = {},
             registerFilter = function (name, fn) {
                 filters[name] = fn();
             },
             $filter = extend(function (name) {
-                return filters[name];
+                if (filters[name]) return filters[name];
+                throw $parseMinErr('unfil', 'Unknown filter: ' + name);
             }, {
                 register: registerFilter,
                 all: filters
             });
-        this.$get = ['$filter', '$sniffer', function () {
+
+        this.$get = ['$filter', '$sniffer', '$log', function () {
             var ngParser
             return ngParser = extend(function (exp) {
                 switch (typeof exp) {
                     case 'string':
-                        return cache.hasOwnProperty(exp)
-                            ? cache[exp]
-                            : cache[exp] = parser(exp, false, $filter, ngParser.csp);
+                        var parsedExpression;
+                        if (cache.hasOwnProperty(exp)) {
+                            return cache[exp];
+                        }
+
+                        var lexer = new Lexer($parseOptions);
+                        var parser = new Parser(lexer, ngParser.$filter, $parseOptions);
+                        parsedExpression = parser.parse(exp, false);
+
+                        if (exp !== 'hasOwnProperty') {
+                            // Only cache the value if it's not going to mess up the cache object
+                            // This is more performant that using Object.prototype.hasOwnProperty.call
+                            cache[exp] = parsedExpression;
+                        }
+
+                        return parsedExpression;
                     case 'function':
                         return exp;
                     default:
                         return noop;
                 }
             }, {
-                lex: lex,
-                filters: $filter,
+                Lexer: Lexer,
+                Parser: Parser,
+                $filter: $filter,
+                registerFilter: registerFilter,
+
                 cache: cache,
-                csp: false,
+                $parseOptions: $parseOptions,
+                promiseWarningCache: promiseWarningCache,
+                getterFnCache: getterFnCache,
 
                 forEach: forEach,
                 valueFn: valueFn,
                 noop: noop,
-                lowercase: lowercase,
 
                 isFunction: isFunction,
                 isUndefined: isUndefined,
@@ -1406,9 +1424,7 @@
                 isWindow: isWindow,
                 isScope: isScope,
                 toJson: toJson,
-                toJsonReplacer: toJsonReplacer,
                 extend: extend,
-                setHashKey: setHashKey,
                 minErr: minErr,
                 toString: toString
             });
@@ -1431,14 +1447,23 @@
 
     }
 
+    var instance = new $ParseProvider().$get[3]({});
+
     if (typeof module !== "undefined" && typeof module.exports !== "undefined") {
-        module.exports = new $ParseProvider().$get[2]({});
+        module.exports = instance;
     } else if (typeof define !== "undefined" && define.amd) {
         define("ngParser", function () {
-            return new $ParseProvider().$get[2]({});
+            return instance;
         });
     } else {
-        this.ngParser = new $ParseProvider().$get[2]({});
+        this.ngParser = instance;
     }
 
-}.call(this, typeof document === "undefined" ? {} : document));
+    if (this.angular) {
+        this.angular.module('ngParser', []).factory('ngParser', ['$filter', function ($filter) {
+            instance.$filter = $filter;
+            return instance;
+        }]);
+    }
+
+}.call(typeof window === "undefined" ? this : window, typeof document === "undefined" ? {} : document));
