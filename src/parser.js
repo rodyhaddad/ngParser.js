@@ -2,8 +2,6 @@
 
   'use strict';
 
-  var toString = Object.prototype.toString;
-
   function noop() {
   }
 
@@ -38,7 +36,7 @@
   }
 
   function isArray(value) {
-    return toString.apply(value) == '[object Array]';
+    return Object.prototype.toString.apply(value) == '[object Array]';
   }
 
   function isWindow(obj) {
@@ -1378,7 +1376,6 @@
     toJson: toJson,
     extend: extend,
     minErr: minErr,
-    toString: toString,
     child: function ($parseOptions) {
 
       var cache = {},
@@ -1394,7 +1391,7 @@
           all: filters
         });
 
-      var ngParser = extend(function ngParser(exp, options) {
+      return extend(function ngParser(exp, options) {
         switch (typeof exp) {
           case 'string':
             var parsedExpression;
@@ -1426,7 +1423,6 @@
         registerFilter: registerFilter,
         cache: cache
       });
-      return ngParser;
     }
   };
 
