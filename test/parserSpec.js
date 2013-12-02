@@ -63,7 +63,7 @@ describe('parser', function () {
 
         beforeEach(function () {
             lex = function () {
-                var lexer = new ngParser.Lexer({csp: false, unwrapPromises: false});
+                var lexer = new ngParser.Lexer({csp: false, unwrapPromises: false, $$getterFnCache: {}});
                 return lexer.lex.apply(lexer, arguments);
             };
         });

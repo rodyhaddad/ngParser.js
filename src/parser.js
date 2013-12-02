@@ -193,8 +193,8 @@
 
 
     var $parseMinErr = minErr('$parse'),
-        promiseWarning = noop,
-        promiseWarningCache = {};
+        promiseWarning = noop/*,
+        promiseWarningCache = {}*/;
 
     // Sandboxing Angular Expressions
 // ------------------------------
@@ -1117,7 +1117,7 @@
         return setValue;
     }
 
-    var getterFnCache = {};
+    //var getterFnCache = {};
 
     /**
      * Implementation of the "Black Hole" variant from:
@@ -1234,8 +1234,8 @@
         // Check whether the cache has this getter already.
         // We can use hasOwnProperty directly on the cache because we ensure,
         // see below, that the cache never stores a path called 'hasOwnProperty'
-        if (getterFnCache.hasOwnProperty(path)) {
-            return getterFnCache[path];
+        if (options.$$getterFnCache.hasOwnProperty(path)) {
+            return options.$$getterFnCache[path];
         }
 
         var pathKeys = path.split('.'),
@@ -1298,7 +1298,7 @@
         // Only cache the value if it's not going to mess up the cache object
         // This is more performant that using Object.prototype.hasOwnProperty.call
         if (path !== 'hasOwnProperty') {
-            getterFnCache[path] = fn;
+            options.$$getterFnCache[path] = fn;
         }
         return fn;
     }
@@ -1355,42 +1355,62 @@
      * `$parseProvider` can be used for configuring the default behavior of the {@link ng.$parse $parse}
      *  service.
      */
-    function $ParseProvider() {
-        var cache = {},
-            $parseOptions = {
-                csp: false,
-                unwrapPromises: false,
-                logPromiseWarnings: true
-            },
-            filters = {},
-            registerFilter = function (name, fn) {
-                filters[name] = fn();
-            },
-            $filter = extend(function (name) {
-                if (filters[name]) return filters[name];
-                throw $parseMinErr('unfil', 'Unknown filter: ' + name);
-            }, {
-                register: registerFilter,
-                all: filters
-            });
+    var exports = {
+        Lexer: Lexer,
+        Parser: Parser,
+        $parseOptions: {
+            csp: false,
+            unwrapPromises: false,
+            logPromiseWarnings: true
+        },
 
-        this.$get = ['$filter', '$sniffer', '$log', function () {
-            var ngParser
-            return ngParser = extend(function (exp) {
+        forEach: forEach,
+        valueFn: valueFn,
+        noop: noop,
+        isFunction: isFunction,
+        isUndefined: isUndefined,
+        isString: isString,
+        isArray: isArray,
+        isArrayLike: isArrayLike,
+        isDefined: isDefined,
+        isWindow: isWindow,
+        isScope: isScope,
+        toJson: toJson,
+        extend: extend,
+        minErr: minErr,
+        toString: toString,
+        child: function ($parseOptions) {
+
+            var cache = {},
+                filters = {},
+                registerFilter = function (name, fn) {
+                    filters[name] = fn();
+                },
+                $filter = extend(function (name) {
+                    if (filters[name]) return filters[name];
+                    throw $parseMinErr('unfil', 'Unknown filter: ' + name);
+                }, {
+                    register: registerFilter,
+                    all: filters
+                });
+
+            var ngParser = extend(function ngParser(exp, options) {
                 switch (typeof exp) {
                     case 'string':
                         var parsedExpression;
                         if (cache.hasOwnProperty(exp)) {
                             return cache[exp];
                         }
+                        options = options ? extend({}, ngParser.$parseOptions, options) : ngParser.$parseOptions;
 
-                        var lexer = new Lexer($parseOptions);
-                        var parser = new Parser(lexer, ngParser.$filter, $parseOptions);
+                        var lexer = new Lexer(options);
+                        var parser = new Parser(lexer, ngParser.$filter, options);
                         parsedExpression = parser.parse(exp, false);
 
-                        if (exp !== 'hasOwnProperty') {
+                        if (exp !== 'hasOwnProperty' && options === ngParser.$parseOptions) {
                             // Only cache the value if it's not going to mess up the cache object
                             // This is more performant that using Object.prototype.hasOwnProperty.call
+                            // Also if it doesn't have custom options
                             cache[exp] = parsedExpression;
                         }
 
@@ -1400,54 +1420,28 @@
                     default:
                         return noop;
                 }
-            }, {
-                Lexer: Lexer,
-                Parser: Parser,
+            }, exports, {
+                $parseOptions: extend(exports.$parseOptions, {$$getterFnCache: {}}, $parseOptions),
                 $filter: $filter,
                 registerFilter: registerFilter,
-
-                cache: cache,
-                $parseOptions: $parseOptions,
-                promiseWarningCache: promiseWarningCache,
-                getterFnCache: getterFnCache,
-
-                forEach: forEach,
-                valueFn: valueFn,
-                noop: noop,
-
-                isFunction: isFunction,
-                isUndefined: isUndefined,
-                isString: isString,
-                isArray: isArray,
-                isArrayLike: isArrayLike,
-                isDefined: isDefined,
-                isWindow: isWindow,
-                isScope: isScope,
-                toJson: toJson,
-                extend: extend,
-                minErr: minErr,
-                toString: toString
+                cache: cache
             });
-        }];
+            return ngParser;
+        }
+    };
 
-        var uppercaseFilter = valueFn(uppercase);
-        var lowercaseFilter = valueFn(lowercase);
+    var instance = exports.child();
 
-        // TODO implement these filters
-        /*register('currency', currencyFilter);
-         register('date', dateFilter);
-         register('filter', filterFilter);
-         register('json', jsonFilter);
-         register('limitTo', limitToFilter);
-         register('number', numberFilter);
-         register('orderBy', orderByFilter);*/
-        registerFilter('uppercase', uppercaseFilter);
-        registerFilter('lowercase', lowercaseFilter);
-
-
-    }
-
-    var instance = new $ParseProvider().$get[3]({});
+    // TODO implement these filters
+    /*register('currency', currencyFilter);
+     register('date', dateFilter);
+     register('filter', filterFilter);
+     register('json', jsonFilter);
+     register('limitTo', limitToFilter);
+     register('number', numberFilter);
+     register('orderBy', orderByFilter);*/
+    instance.registerFilter('uppercase', valueFn(uppercase));
+    instance.registerFilter('lowercase', valueFn(lowercase));
 
     if (typeof module !== "undefined" && typeof module.exports !== "undefined") {
         module.exports = instance;
