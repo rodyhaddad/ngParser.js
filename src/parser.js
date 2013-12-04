@@ -1313,7 +1313,7 @@
    * Converts Angular {@link guide/expression expression} into a function.
    *
    * <pre>
-   *   var getter = $parse('user.name');
+   *   var getter = ngParser('user.name');
    *   var setter = getter.assign;
    *   var context = {user:{name:'angular'}};
    *   var locals = {user:{name:'local'}};
@@ -1343,16 +1343,6 @@
    *
    */
 
-
-  /**
-   * @ngdoc object
-   * @name ng.$parseProvider
-   * @function
-   *
-   * @description
-   * `$parseProvider` can be used for configuring the default behavior of the {@link ng.$parse $parse}
-   *  service.
-   */
   var exports = {
     Lexer: Lexer,
     Parser: Parser,
