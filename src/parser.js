@@ -1366,15 +1366,20 @@
     toJson: toJson,
     extend: extend,
     minErr: minErr,
-    child: function ($parseOptions) {
-
-      var cache = {},
+    child: function ($parseOptions, inheritFilters) {
+      if (typeof $parseOptions === 'boolean') {
+        inheritFilters = $parseOptions;
+        $parseOptions = null;
+      }
+      var parent = this,
+        cache = {},
         filters = {},
         registerFilter = function (name, fn) {
           filters[name] = fn();
         },
         $filter = extend(function (name) {
           if (filters[name]) return filters[name];
+          if (inheritFilters !== false && parent.$filter) return parent.$filter(name);
           throw $parseMinErr('unfil', 'Unknown filter: ' + name);
         }, {
           register: registerFilter,
