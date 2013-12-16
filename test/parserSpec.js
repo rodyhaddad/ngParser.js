@@ -1488,4 +1488,42 @@ describe('parser', function () {
       });
     });
   });
+
+  describe('.child', function () {
+    it('should create a child instance', function () {
+      var child = ngParser.child();
+      expect(child).not.toBe(ngParser);
+      expect(child('1 + 2 - 3')()).toBe(0);
+    });
+
+    it('should accept new options', function () {
+      var child = ngParser.child({unwrapPromises: true});
+      var expr = child('test')({test: {then: function (fn) {
+        fn(5);
+      }}});
+      expect(expr).toBe(5);
+    });
+
+    it('should isolate it\'s filters if asked to ', function () {
+      // isolated
+      var childIsolate = ngParser.child(false);
+      expect(function () {
+        childIsolate('"test" | uppercase')
+      }).toThrowMinErr('$parse', 'unfil', 'Unknown filter: uppercase');
+
+      expect(ngParser('"test" | uppercase')()).toBe('TEST');
+
+      childIsolate.registerFilter('uppercase', function () {
+        return function (string) {
+          return string.toUpperCase();
+        }
+      });
+
+      expect(childIsolate('"test" | uppercase')()).toBe('TEST');
+
+      // inherit
+      var child = ngParser.child();
+      expect(child('"test" | uppercase')()).toBe('TEST');
+    });
+  })
 });
