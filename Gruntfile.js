@@ -23,8 +23,8 @@ module.exports = function (grunt) {
     grunt.loadNpmTasks('grunt-karma');
     grunt.loadNpmTasks('grunt-contrib-watch');
 
-    grunt.loadTasks('tasks');
-
     grunt.registerTask('test', ['karma:unit']);
     grunt.registerTask('autotest', ['karma:autounit']);
+
+    grunt.registerTask('default', ['test']);
 };
