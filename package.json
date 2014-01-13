@@ -1,8 +1,8 @@
 {
-  "name": "ngParser.js",
-  "version": "0.0.0",
+  "name": "ngParser",
+  "version": "0.1.0",
   "description": "A standalone implementation of angular's expression parser",
-  "main": "dist/ngParser.js",
+  "main": "src/ngParser.js",
   "scripts": {
     "test": "grunt test"
   },
