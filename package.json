@@ -1,5 +1,5 @@
 {
-  "name": "ngParser",
+  "name": "ng-parser",
   "version": "0.1.0",
   "description": "A standalone implementation of angular's expression parser",
   "main": "src/ngParser.js",
