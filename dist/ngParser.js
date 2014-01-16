@@ -1,4 +1,4 @@
-/*! ng-parser v0.1.0 16-01-2014 
+/*! ng-parser v0.2.0 16-01-2014 
 The MIT License (MIT)
 
 Copyright (c) 2013 rodyhaddad
