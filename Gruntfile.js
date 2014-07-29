@@ -20,7 +20,7 @@ module.exports = function (grunt) {
         concat: {
           options: {
             separator: '\n\n',
-            banner: '/*! <%= pkg.name %> v<%= pkg.version %> <%= grunt.template.today("dd-mm-yyyy") %> \n<%= LICENSE %>\n*/\n\n'
+            banner: '/*! <%= pkg.name %> v<%= pkg.version %> <%= grunt.template.today("dd-mm-yyyy") %>\n<%= LICENSE %>\n*/\n\n'
           },
           dist: {
             src: ["src/**.js"],
